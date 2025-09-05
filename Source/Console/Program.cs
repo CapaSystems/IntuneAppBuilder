@@ -29,7 +29,9 @@ namespace IntuneAppBuilder.Console
                         "Specifies a source to package. May be a directory with files for a Win32 app or a single msi file. May be specified multiple times.")
                     { Name = "sources", IsRequired = true },
                 new Option<string>(new[] { "--output", "-o" }, () => ".",
-                    "Specifies an output directory for packaging artifacts. Each packaged application will exist as a raw intunewin file, a portal-ready portal.intunewin file, and an intunewin.json file containing metadata. Defaults to the working directory.")
+                    "Specifies an output directory for packaging artifacts. Each packaged application will exist as a raw intunewin file, a portal-ready portal.intunewin file, and an intunewin.json file containing metadata. Defaults to the working directory."),
+                new Option<bool>("--no-portal", () => false,
+                    "Skip creating the portal-ready .portal.intunewin file. By default, all file types are created.")
             };
 #pragma warning disable S3011
             pack.Handler = CommandHandler.Create(typeof(Program).GetMethod(nameof(PackAsync), BindingFlags.Static | BindingFlags.NonPublic)!);
@@ -71,7 +73,7 @@ namespace IntuneAppBuilder.Console
             return services;
         }
 
-        internal static async Task PackAsync(FileSystemInfo[] sources, string output, IServiceCollection services = null)
+        internal static async Task PackAsync(FileSystemInfo[] sources, string output, bool noPortal, IServiceCollection services = null)
         {
             services ??= GetServices();
 
@@ -80,7 +82,7 @@ namespace IntuneAppBuilder.Console
             AddBuilders(sources, services);
 
             var sp = services.BuildServiceProvider();
-            foreach (var builder in sp.GetRequiredService<IEnumerable<IIntuneAppPackageBuilder>>()) await BuildAsync(builder, sp.GetRequiredService<IIntuneAppPackagingService>(), output, GetLogger(sp));
+            foreach (var builder in sp.GetRequiredService<IEnumerable<IIntuneAppPackageBuilder>>()) await BuildAsync(builder, sp.GetRequiredService<IIntuneAppPackagingService>(), output, !noPortal, GetLogger(sp));
         }
 
         internal static async Task PublishAsync(FileSystemInfo[] sources, string token = null, IServiceCollection services = null)
@@ -129,7 +131,7 @@ namespace IntuneAppBuilder.Console
         /// <summary>
         ///     Invokes the builder in a dedicated working directory.
         /// </summary>
-        private static async Task BuildAsync(IIntuneAppPackageBuilder builder, IIntuneAppPackagingService packagingService, string output, ILogger logger)
+        private static async Task BuildAsync(IIntuneAppPackageBuilder builder, IIntuneAppPackagingService packagingService, string output, bool createPortalFile, ILogger logger)
         {
             var cd = Environment.CurrentDirectory;
             Environment.CurrentDirectory = output;
@@ -156,12 +158,18 @@ namespace IntuneAppBuilder.Console
                     await package.Data.CopyToAsync(fs);
                 }
 
-                await using (var fs = File.Open($"{baseFileName}.portal.intunewin", FileMode.Create, FileAccess.Write, FileShare.Read))
+                if (createPortalFile)
                 {
-                    await packagingService.BuildPackageForPortalAsync(package, fs);
+                    await using (var fs = File.Open($"{baseFileName}.portal.intunewin", FileMode.Create, FileAccess.Write, FileShare.Read))
+                    {
+                        await packagingService.BuildPackageForPortalAsync(package, fs);
+                    }
+                    logger.LogInformation($"Finished writing {baseFileName} package files to {output}.");
                 }
-
-                logger.LogInformation($"Finished writing {baseFileName} package files to {output}.");
+                else
+                {
+                    logger.LogInformation($"Finished writing {baseFileName} package files to {output} (portal file skipped).");
+                }
             }
             finally
             {

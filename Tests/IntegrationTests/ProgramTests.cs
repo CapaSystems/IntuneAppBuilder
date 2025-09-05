@@ -47,7 +47,7 @@ namespace IntuneAppBuilder.IntegrationTests
 
                 testOutputHelper.WriteLine($"Generated {sizeInMb}MB file in {sw.ElapsedMilliseconds / 1000} seconds.");
 
-                await Program.PackAsync(new FileSystemInfo[] { new DirectoryInfo("big") }, ".", GetServices());
+                await Program.PackAsync(new FileSystemInfo[] { new DirectoryInfo("big") }, ".", false, GetServices());
 
                 Assert.True(File.Exists("big.intunewin"));
                 Assert.True(File.Exists("big.portal.intunewin"));
@@ -71,7 +71,7 @@ namespace IntuneAppBuilder.IntegrationTests
                 if (!File.Exists(tempPath)) await http.DownloadFileAsync("https://aka.ms/wvdclient", tempPath);
                 File.Copy(tempPath, "wvd.msi");
 
-                await Program.PackAsync(new FileSystemInfo[] { new FileInfo("wvd.msi") }, ".", GetServices());
+                await Program.PackAsync(new FileSystemInfo[] { new FileInfo("wvd.msi") }, ".", false, GetServices());
 
                 Assert.True(File.Exists("wvd.intunewin"));
                 Assert.True(File.Exists("wvd.portal.intunewin"));
@@ -96,7 +96,7 @@ namespace IntuneAppBuilder.IntegrationTests
                 Directory.CreateDirectory("wvd");
                 File.Copy(tempPath, "wvd/wvd.msi");
 
-                await Program.PackAsync(new FileSystemInfo[] { new DirectoryInfo("wvd") }, ".", GetServices());
+                await Program.PackAsync(new FileSystemInfo[] { new DirectoryInfo("wvd") }, ".", false, GetServices());
 
                 Assert.True(File.Exists("wvd.intunewin"));
                 Assert.True(File.Exists("wvd.portal.intunewin"));
