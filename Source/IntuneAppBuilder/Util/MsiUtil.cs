@@ -90,10 +90,14 @@ namespace IntuneAppBuilder.Util
             return new MobileMsiManifest
             {
                 MsiExecutionContext = GetMsiExecutionContext(info.PackageType),
+                MsiProductCode = info.ProductCode,
+                MsiProductVersion = info.ProductVersion,
                 MsiUpgradeCode = info.UpgradeCode,
                 MsiRequiresReboot = info.RequiresReboot.GetValueOrDefault(),
                 MsiIsUserInstall = IsUserInstall(),
-                MsiIsMachineInstall = info.PackageType == Win32LobAppMsiPackageType.PerMachine || (info.PackageType == Win32LobAppMsiPackageType.DualPurpose && !string.IsNullOrEmpty(ReadProperty("MSIINSTALLPERUSER", false)))
+                MsiIsMachineInstall = info.PackageType == Win32LobAppMsiPackageType.PerMachine || (info.PackageType == Win32LobAppMsiPackageType.DualPurpose && !string.IsNullOrEmpty(ReadProperty("MSIINSTALLPERUSER", false))),
+                MsiPackageCode = info.ProductCode,
+                MsiPublisher = info.Publisher
             };
         }
 

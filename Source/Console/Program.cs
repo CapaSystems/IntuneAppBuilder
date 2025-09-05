@@ -1,7 +1,5 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.CommandLine;
-using System.CommandLine.Invocation;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -14,6 +12,13 @@ using IntuneAppBuilder.Services;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Kiota.Serialization.Json;
+
+// Use specific namespaces to avoid ambiguity
+using FileSystemInfo = System.IO.FileSystemInfo;
+using Microsoft.Graph.Beta.Models;
+using Command = System.CommandLine.Command;
+using System.CommandLine;
+using System.CommandLine.Invocation;
 
 namespace IntuneAppBuilder.Console
 {
@@ -29,10 +34,40 @@ namespace IntuneAppBuilder.Console
                         "Specifies a source to package. May be a directory with files for a Win32 app or a single msi file. May be specified multiple times.")
                     { Name = "sources", IsRequired = true },
                 new Option<string>(new[] { "--output", "-o" }, () => ".",
-                    "Specifies an output directory for packaging artifacts. Each packaged application will exist as a raw intunewin file, a portal-ready portal.intunewin file, and an intunewin.json file containing metadata. Defaults to the working directory.")
+                    "Specifies an output directory for packaging artifacts. Each packaged application will exist as a raw intunewin file, a portal-ready portal.intunewin file, and an intunewin.json file containing metadata. Defaults to the working directory."),
+                new Option<string>(new[] { "--setupFilePath" },
+                    "Specifies the main setup file to use within the source directory. If not specified, the tool will automatically select an .msi or .exe file."),
+                // Add MSI properties as optional parameters for non-Windows platforms
+                new Option<string>("--msiProductName",
+                    "Specifies the MSI product name for non-Windows platforms"),
+                new Option<string>("--msiProductCode",
+                    "Specifies the MSI product code for non-Windows platforms"),
+                new Option<string>("--msiProductVersion",
+                    "Specifies the MSI product version for non-Windows platforms"),
+                new Option<string>("--msiUpgradeCode",
+                    "Specifies the MSI upgrade code for non-Windows platforms"),
+                new Option<string>("--msiPublisher",
+                    "Specifies the MSI publisher for non-Windows platforms"),
+                new Option<string>("--msiPackageType",
+                    "Specifies the MSI package type for non-Windows platforms (PerUser, PerMachine, or DualPurpose)"),
+                new Option<bool>("--msiRequiresReboot", () => false,
+                    "Specifies whether the MSI requires a reboot for non-Windows platforms"),
+                new Option<string>("--msiPackageCode",
+                    "Specifies the MSI package code for non-Windows platforms"),
+                new Option<bool>("--msiRequiresLogon", () => false,
+                    "Specifies whether the MSI requires logon for non-Windows platforms"),
+                new Option<bool>("--msiIncludesServices", () => false,
+                    "Specifies whether the MSI includes services for non-Windows platforms"),
+                new Option<bool>("--msiIncludesOdbcDataSource", () => false,
+                    "Specifies whether the MSI includes ODBC data sources for non-Windows platforms"),
+                new Option<bool>("--msiContainsSystemRegistryKeys", () => false,
+                    "Specifies whether the MSI contains system registry keys for non-Windows platforms"),
+                new Option<bool>("--msiContainsSystemFolders", () => false,
+                    "Specifies whether the MSI contains system folders for non-Windows platforms")
             };
 #pragma warning disable S3011
-            pack.Handler = CommandHandler.Create(typeof(Program).GetMethod(nameof(PackAsync), BindingFlags.Static | BindingFlags.NonPublic)!);
+            pack.Handler = CommandHandler.Create<FileSystemInfo[], string, string, MsiCommandLineOptions>(
+                (sources, output, setupFilePath, msiOptions) => PackAsync(sources, output, setupFilePath, msiOptions));
 #pragma warning restore S3011
 
             var publish = new Command("publish")
@@ -71,16 +106,34 @@ namespace IntuneAppBuilder.Console
             return services;
         }
 
-        internal static async Task PackAsync(FileSystemInfo[] sources, string output, IServiceCollection services = null)
+        internal static async Task PackAsync(
+            FileSystemInfo[] sources, 
+            string output,
+            string setupFilePath = null,
+            MsiCommandLineOptions msiOptions = null)
         {
-            services ??= GetServices();
+            var services = GetServices();
 
             output = Path.GetFullPath(output);
 
-            AddBuilders(sources, services);
+            // Register MSI manual properties if any are provided
+            RegisterMsiPropertiesIfProvided(services, msiOptions);
+
+            AddBuilders(sources, services, setupFilePath);
 
             var sp = services.BuildServiceProvider();
             foreach (var builder in sp.GetRequiredService<IEnumerable<IIntuneAppPackageBuilder>>()) await BuildAsync(builder, sp.GetRequiredService<IIntuneAppPackagingService>(), output, GetLogger(sp));
+        }
+
+        private static Win32LobAppMsiPackageType? ParsePackageType(string packageType)
+        {
+            return packageType?.ToLowerInvariant() switch
+            {
+                "peruser" => Win32LobAppMsiPackageType.PerUser,
+                "permachine" => Win32LobAppMsiPackageType.PerMachine,
+                "dualpurpose" => Win32LobAppMsiPackageType.DualPurpose,
+                _ => null
+            };
         }
 
         internal static async Task PublishAsync(FileSystemInfo[] sources, string token = null, IServiceCollection services = null)
@@ -107,9 +160,10 @@ namespace IntuneAppBuilder.Console
         /// <summary>
         ///     Registers the correct builder type for each source from the command line.
         /// </summary>
-        /// <param name="sources"></param>
-        /// <param name="services"></param>
-        private static void AddBuilders(IEnumerable<FileSystemInfo> sources, IServiceCollection services)
+        /// <param name="sources">The source files or directories to package</param>
+        /// <param name="services">The service collection to add builders to</param>
+        /// <param name="setupFilePath">Optional path to the main setup file</param>
+        private static void AddBuilders(IEnumerable<FileSystemInfo> sources, IServiceCollection services, string setupFilePath = null)
         {
             foreach (var source in sources)
             {
@@ -117,7 +171,18 @@ namespace IntuneAppBuilder.Console
 
                 if (source.Extension.Equals(".msi", StringComparison.OrdinalIgnoreCase) || source is DirectoryInfo)
                 {
-                    services.AddSingleton<IIntuneAppPackageBuilder>(sp => ActivatorUtilities.CreateInstance<PathIntuneAppPackageBuilder>(sp, source.FullName));
+                    // Register the setup file path if provided
+                    if (!string.IsNullOrEmpty(setupFilePath))
+                    {
+                        services.AddSingleton(new SetupFileInfo { SetupFilePath = setupFilePath });
+                    }
+                    
+                    services.AddSingleton<IIntuneAppPackageBuilder>(sp => 
+                    {
+                        var packagingService = sp.GetRequiredService<IIntuneAppPackagingService>();
+                        var builder = new PathIntuneAppPackageBuilder(source.FullName, packagingService, sp);
+                        return builder;
+                    });
                 }
                 else
                 {
@@ -182,6 +247,95 @@ namespace IntuneAppBuilder.Console
             logger.LogInformation($"Using package data file {dataPath}");
             package!.Data = File.Open(dataPath, FileMode.Open, FileAccess.Read, FileShare.Read);
             return package;
+        }
+
+        private static void RegisterMsiPropertiesIfProvided(
+            IServiceCollection services,
+            MsiCommandLineOptions options)
+        {
+            // Check if any MSI properties are provided
+            if (HasAnyMsiProperties(options))
+            {
+                var properties = CreateMsiManualProperties(options);
+                // Register with the explicit type to avoid type resolution issues
+                services.AddSingleton(typeof(IntuneAppBuilder.Domain.MsiManualProperties), properties);
+                System.Console.WriteLine($"MSI properties registered with service collection: ProductName={properties.ProductName}, ProductCode={properties.ProductCode}");
+            }
+        }
+        
+        private static bool HasAnyMsiProperties(MsiCommandLineOptions options)
+        {
+            if (options == null)
+                return false;
+                
+            return HasAnyStringProperties(options) || HasAnyBooleanProperties(options);
+        }
+
+        private static bool HasAnyStringProperties(MsiCommandLineOptions options)
+        {
+            // Check basic product properties first
+            if (!string.IsNullOrEmpty(options.MsiProductName) || 
+                !string.IsNullOrEmpty(options.MsiProductCode) || 
+                !string.IsNullOrEmpty(options.MsiProductVersion))
+            {
+                return true;
+            }
+            
+            // Check additional product metadata
+            if (!string.IsNullOrEmpty(options.MsiUpgradeCode) || 
+                !string.IsNullOrEmpty(options.MsiPublisher))
+            {
+                return true;
+            }
+            
+            // Check package-specific properties
+            return !string.IsNullOrEmpty(options.MsiPackageType) || 
+                   !string.IsNullOrEmpty(options.MsiPackageCode);
+        }
+
+        private static bool HasAnyBooleanProperties(MsiCommandLineOptions options)
+        {
+            // Check installation requirements
+            if (options.MsiRequiresReboot || options.MsiRequiresLogon)
+            {
+                return true;
+            }
+            
+            // Check package content properties
+            if (options.MsiIncludesServices || options.MsiIncludesOdbcDataSource)
+            {
+                return true;
+            }
+            
+            // Check system impact properties
+            return options.MsiContainsSystemRegistryKeys || 
+                   options.MsiContainsSystemFolders;
+        }
+        
+        private static IntuneAppBuilder.Domain.MsiManualProperties CreateMsiManualProperties(MsiCommandLineOptions options)
+        {
+            if (options == null)
+                return null;
+                
+            var properties = new IntuneAppBuilder.Domain.MsiManualProperties
+            {
+                ProductName = options.MsiProductName,
+                ProductCode = options.MsiProductCode,
+                ProductVersion = options.MsiProductVersion,
+                UpgradeCode = options.MsiUpgradeCode,
+                Publisher = options.MsiPublisher,
+                PackageType = options.MsiPackageType != null ? ParsePackageType(options.MsiPackageType) : null,
+                RequiresReboot = options.MsiRequiresReboot ? (bool?)true : null,
+                PackageCode = options.MsiPackageCode,
+                RequiresLogon = options.MsiRequiresLogon ? (bool?)true : null,
+                IncludesServices = options.MsiIncludesServices ? (bool?)true : null,
+                IncludesOdbcDataSource = options.MsiIncludesOdbcDataSource ? (bool?)true : null,
+                ContainsSystemRegistryKeys = options.MsiContainsSystemRegistryKeys ? (bool?)true : null,
+                ContainsSystemFolders = options.MsiContainsSystemFolders ? (bool?)true : null
+            };
+            
+            
+            return properties;
         }
     }
 }

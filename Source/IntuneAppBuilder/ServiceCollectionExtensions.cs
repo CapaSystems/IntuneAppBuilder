@@ -7,6 +7,7 @@ using Azure.Identity;
 using IntuneAppBuilder.Services;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Logging;
 using Microsoft.Graph.Beta;
 
 namespace IntuneAppBuilder
@@ -24,7 +25,9 @@ namespace IntuneAppBuilder
             services.AddHttpClient();
             services.TryAddSingleton(sp => sp.GetRequiredService<IHttpClientFactory>().CreateClient());
             services.TryAddTransient<IIntuneAppPublishingService, IntuneAppPublishingService>();
-            services.TryAddTransient<IIntuneAppPackagingService, IntuneAppPackagingService>();
+            services.TryAddTransient<IIntuneAppPackagingService>(sp => new IntuneAppPackagingService(
+                sp.GetRequiredService<ILogger<IntuneAppPackagingService>>(), 
+                sp));
             services.TryAddSingleton(sp => new GraphServiceClient(CreateTokenCredential(token), new[] { "DeviceManagementApps.ReadWrite.All" }));
             return services;
         }

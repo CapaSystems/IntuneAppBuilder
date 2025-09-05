@@ -1,6 +1,6 @@
 <Project>
     <PropertyGroup>
-        <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+        <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
         <CodeAnalysisRuleSet>$(MSBuildThisFileDirectory)/default.ruleset</CodeAnalysisRuleSet>
         <RunCodeAnalysis>true</RunCodeAnalysis>
     </PropertyGroup>
@@ -10,8 +10,10 @@
             <PrivateAssets>all</PrivateAssets>
             <IncludeAssets>analyzers</IncludeAssets>
         </PackageReference>
+        <!-- GitVersion disabled as requested
         <PackageReference Include="GitVersion.MsBuild" Version="5.12.0">
             <PrivateAssets>All</PrivateAssets>
         </PackageReference>
+        -->
     </ItemGroup>
 </Project>

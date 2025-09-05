@@ -10,6 +10,7 @@ using System.Xml;
 using System.Xml.Serialization;
 using IntuneAppBuilder.Domain;
 using IntuneAppBuilder.Util;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Graph.Beta.Models;
 
@@ -18,8 +19,13 @@ namespace IntuneAppBuilder.Services
     internal sealed class IntuneAppPackagingService : IIntuneAppPackagingService
     {
         private readonly ILogger logger;
+        private readonly IServiceProvider serviceProvider;
 
-        public IntuneAppPackagingService(ILogger<IntuneAppPackagingService> logger) => this.logger = logger;
+        public IntuneAppPackagingService(ILogger<IntuneAppPackagingService> logger, IServiceProvider serviceProvider = null)
+        {
+            this.logger = logger;
+            this.serviceProvider = serviceProvider;
+        }
 
 #pragma warning disable S1541
         public async Task<IntuneAppPackage> BuildPackageAsync(string sourcePath = ".", string setupFilePath = null)
@@ -70,12 +76,31 @@ namespace IntuneAppBuilder.Services
             app.DisplayName = msiInfo.Info?.ProductName ?? name;
             app.Publisher = msiInfo.Info?.Publisher;
 
+            // Add logging to debug MSI manifest issue
+            byte[] manifestBytes = null;
+            if (msiInfo.Manifest != null)
+            {
+                try
+                {
+                    manifestBytes = msiInfo.Manifest.ToByteArray();
+                    logger.LogInformation($"Successfully created MSI manifest of {manifestBytes.Length} bytes");
+                }
+                catch (Exception ex)
+                {
+                    logger.LogError($"Failed to convert MSI manifest to byte array: {ex.Message}");
+                }
+            }
+            else
+            {
+                logger.LogWarning("MSI manifest is null - msiInfo properties will not be included in output XML");
+            }
+
             var file = new MobileAppContentFile
             {
                 Name = app.FileName,
                 Size = new FileInfo(sourcePath).Length,
                 SizeEncrypted = data.Length,
-                Manifest = msiInfo.Manifest?.ToByteArray()
+                Manifest = manifestBytes
             };
 
             var result = new IntuneAppPackage
@@ -245,34 +270,151 @@ namespace IntuneAppBuilder.Services
             }
 
             if (package.File.Manifest != null)
-                using (var writer = infoElement.CreateNavigator().AppendChild())
-                {
-                    writer.WriteWhitespace("");
-
-                    var overrides = new XmlAttributeOverrides();
-                    typeof(MobileMsiManifest).GetProperties().ToList().ForEach(p =>
-                    {
-                        if (p.DeclaringType != null)
-                            overrides.Add(p.DeclaringType, p.Name, new XmlAttributes());
-                    });
-                    new XmlSerializer(typeof(MobileMsiManifest), overrides, new Type[0], new XmlRootAttribute("MsiInfo"), string.Empty)
-                        .Serialize(writer, MobileMsiManifest.FromByteArray(package.File.Manifest), namespaces);
-                }
-
-            return FormatXml(xml);
-        }
-
-        private (Win32LobAppMsiInformation Info, MobileMsiManifest Manifest) GetMsiInfo(string setupFilePath)
-        {
-            if (OperatingSystem.IsWindows() && ".msi".Equals(Path.GetExtension(setupFilePath), StringComparison.OrdinalIgnoreCase))
             {
-                using (var util = new MsiUtil(setupFilePath, logger))
+                try
                 {
-                    return util.ReadMsiInfo();
+                    logger.LogInformation($"Found manifest data of {package.File.Manifest.Length} bytes, attempting to add MSI info to XML");
+                    using (var writer = infoElement.CreateNavigator().AppendChild())
+                    {
+                        writer.WriteWhitespace("");
+
+                        var overrides = new XmlAttributeOverrides();
+                        typeof(MobileMsiManifest).GetProperties().ToList().ForEach(p =>
+                        {
+                            if (p.DeclaringType != null)
+                                overrides.Add(p.DeclaringType, p.Name, new XmlAttributes());
+                        });
+                        
+                        var mobileMsiManifest = MobileMsiManifest.FromByteArray(package.File.Manifest);
+                        if (mobileMsiManifest != null)
+                        {
+                            logger.LogInformation($"Successfully deserialized MSI manifest with ProductCode: {mobileMsiManifest.MsiProductCode}");
+                            new XmlSerializer(typeof(MobileMsiManifest), overrides, new Type[0], new XmlRootAttribute("MsiInfo"), string.Empty)
+                                .Serialize(writer, mobileMsiManifest, namespaces);
+                            logger.LogInformation("Successfully added MSI info to XML");
+                        }
+                        else
+                        {
+                            logger.LogWarning("Deserialized MSI manifest is null");
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    logger.LogError($"Error adding MSI info to XML: {ex.Message}");
                 }
             }
+            else
+            {
+                logger.LogWarning("No MSI manifest data available to include in XML");
+            }
 
+            return FormatXml(xml);
+        }        private (Win32LobAppMsiInformation Info, MobileMsiManifest Manifest) GetMsiInfo(string setupFilePath)
+        {
+            // Check if we have manual MSI properties provided (for Linux/Mac support)
+            var manualProperties = serviceProvider?.GetService(typeof(MsiManualProperties)) as MsiManualProperties;
+            if (manualProperties != null && manualProperties.HasValues())
+            {
+                logger.LogInformation("Using manually provided MSI properties instead of reading from MSI file.");
+                
+                // Validate essential properties to ensure we have valid data
+                if (string.IsNullOrEmpty(manualProperties.ProductCode))
+                {
+                    logger.LogWarning("Missing required MSI property: ProductCode");
+                }
+                
+                if (string.IsNullOrEmpty(manualProperties.ProductVersion))
+                {
+                    logger.LogWarning("Missing required MSI property: ProductVersion");
+                }
+                
+                // Determine package type with default value for safety
+                Win32LobAppMsiPackageType packageType = manualProperties.PackageType ?? Win32LobAppMsiPackageType.PerMachine;
+                
+                var info = new Win32LobAppMsiInformation
+                {
+                    ProductName = manualProperties.ProductName,
+                    ProductCode = manualProperties.ProductCode,
+                    ProductVersion = manualProperties.ProductVersion,
+                    UpgradeCode = manualProperties.UpgradeCode,
+                    Publisher = manualProperties.Publisher,
+                    PackageType = packageType,
+                    RequiresReboot = manualProperties.RequiresReboot
+                };
+
+                var manifest = new MobileMsiManifest
+                {
+                    // Ensure the execution context is set correctly
+                    MsiExecutionContext = GetMsiExecutionContextFromPackageType(packageType),
+                    MsiProductCode = info.ProductCode,
+                    MsiProductVersion = info.ProductVersion,
+                    MsiUpgradeCode = info.UpgradeCode,
+                    MsiRequiresReboot = info.RequiresReboot.GetValueOrDefault(),
+                    // Set these values based on the package type
+                    MsiIsUserInstall = packageType == Win32LobAppMsiPackageType.PerUser || (packageType == Win32LobAppMsiPackageType.DualPurpose),
+                    MsiIsMachineInstall = packageType == Win32LobAppMsiPackageType.PerMachine || (packageType == Win32LobAppMsiPackageType.DualPurpose),
+                    // Use product code as package code if not provided
+                    MsiPackageCode = string.IsNullOrEmpty(manualProperties.PackageCode) ? info.ProductCode : manualProperties.PackageCode,
+                    MsiRequiresLogon = manualProperties.RequiresLogon.GetValueOrDefault(),
+                    MsiIncludesServices = manualProperties.IncludesServices.GetValueOrDefault(),
+                    MsiIncludesOdbcDataSource = manualProperties.IncludesOdbcDataSource.GetValueOrDefault(),
+                    MsiContainsSystemRegistryKeys = manualProperties.ContainsSystemRegistryKeys.GetValueOrDefault(),
+                    MsiContainsSystemFolders = manualProperties.ContainsSystemFolders.GetValueOrDefault(),
+                    MsiPublisher = info.Publisher
+                };
+                
+                // Log the created MSI manifest to verify its content
+                logger.LogInformation($"Created MSI manifest with ProductCode: {manifest.MsiProductCode}, ProductVersion: {manifest.MsiProductVersion}");
+                logger.LogInformation($"MSI package type: {info.PackageType}, execution context: {manifest.MsiExecutionContext}");
+                logger.LogInformation($"MSI Publisher: {manifest.MsiPublisher}, Requires reboot: {manifest.MsiRequiresReboot}");
+                
+                // Return the info and manifest
+                return (info, manifest);
+            }
+            
+            // Check if this is an MSI file by extension (cross-platform approach)
+            if (".msi".Equals(Path.GetExtension(setupFilePath), StringComparison.OrdinalIgnoreCase))
+            {
+                // If on Windows, try to read MSI metadata directly
+                if (OperatingSystem.IsWindows())
+                {
+                    try
+                    {
+                        using (var util = new MsiUtil(setupFilePath, logger))
+                        {
+                            return util.ReadMsiInfo();
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.LogWarning($"Failed to read MSI info using Windows APIs: {ex.Message}");
+                    }
+                }
+                else
+                {
+                    // On non-Windows, log that we identified an MSI file but can't process it without manual properties
+                    logger.LogWarning($"Detected MSI file '{setupFilePath}' but running on non-Windows platform. Manual MSI properties were not provided or are insufficient.");
+                }
+            }
+            
+            // If we get here, we couldn't read the MSI info and have no manual properties
+            logger.LogWarning("Could not determine MSI information from file or manual properties. MSI manifest will be null.");
             return default;
+        }
+
+        // Helper method to convert package type to execution context
+        private string GetMsiExecutionContextFromPackageType(Win32LobAppMsiPackageType? type)
+        {
+            switch (type)
+            {
+                case Win32LobAppMsiPackageType.PerUser:
+                    return "User";
+                case Win32LobAppMsiPackageType.PerMachine:
+                    return "System";
+                default:
+                    return "Any";
+            }
         }
 
         private (string ZipFilePath, string SetupFilePath) ZipContent(string sourcePath, string setupFilePath)

@@ -11,6 +11,7 @@
 		<NoWarn>$(NoWarn);AD0001</NoWarn>
 	</PropertyGroup>
 
+	<!-- SourceLink disabled due to CI compatibility issues
 	<PropertyGroup>
 		<Repository>https://github.com/simeoncloud/IntuneAppBuilder</Repository>
 		<PublishRepositoryUrl>true</PublishRepositoryUrl>
@@ -21,6 +22,7 @@
 	<ItemGroup>
 		<PackageReference Include="Microsoft.SourceLink.GitHub" Version="1.0.0" PrivateAssets="All"/>
 	</ItemGroup>
+	-->
 
 	<ItemGroup>
 		<Compile Include="$(MSBuildThisFileDirectory)AssemblyInfo.cs" />

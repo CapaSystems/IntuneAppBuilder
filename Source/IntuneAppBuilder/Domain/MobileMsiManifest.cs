@@ -1,4 +1,5 @@
-﻿using System.IO;
+﻿using System;
+using System.IO;
 using System.Text;
 using System.Xml;
 using System.Xml.Serialization;
@@ -35,17 +36,44 @@ namespace IntuneAppBuilder.Domain
         [XmlAttribute]
         public string MsiUpgradeCode { get; set; }
 
+        [XmlAttribute]
+        public string MsiProductCode { get; set; }
+
+        [XmlAttribute]
+        public string MsiProductVersion { get; set; }
+
+        [XmlAttribute]
+        public string MsiPackageCode { get; set; }
+
+        [XmlAttribute]
+        public bool MsiRequiresLogon { get; set; }
+
+        [XmlAttribute]
+        public bool MsiIncludesOdbcDataSource { get; set; }
+
+        [XmlAttribute]
+        public string MsiPublisher { get; set; }
+
         public byte[] ToByteArray()
         {
-            var serializer = new XmlSerializer(typeof(MobileMsiManifest));
-
-            using var ms = new MemoryStream();
-            using var writer = new XmlWriter(ms);
-            serializer.Serialize(writer, this, new XmlSerializerNamespaces(new[]
+            try 
             {
-                new XmlQualifiedName(string.Empty, string.Empty)
-            }));
-            return ms.ToArray();
+                var serializer = new XmlSerializer(typeof(MobileMsiManifest));
+
+                using var ms = new MemoryStream();
+                using var writer = new XmlWriter(ms);
+                serializer.Serialize(writer, this, new XmlSerializerNamespaces(new[]
+                {
+                    new XmlQualifiedName(string.Empty, string.Empty)
+                }));
+                return ms.ToArray();
+            }
+            catch (Exception ex)
+            {
+                // Add a trace since we don't have a logger here
+                System.Diagnostics.Trace.TraceError($"Error serializing MobileMsiManifest: {ex.Message}");
+                throw;
+            }
         }
 
         public static MobileMsiManifest FromByteArray(byte[] data)
