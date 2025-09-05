@@ -79,6 +79,13 @@ namespace IntuneAppBuilder.Services
 
             logger.LogInformation($"Uploaded app content file in {sw.ElapsedMilliseconds}ms.");
 
+            // Log file encryption information
+            logger.LogInformation($"File Encryption Info: Algorithm={package.EncryptionInfo?.FileDigestAlgorithm}, " +
+                                $"FileHash={Convert.ToBase64String(package.EncryptionInfo?.FileDigest ?? new byte[0])}, " +
+                                $"FileSize={package.Data?.Length ?? 0}, " +
+                                $"InitVector={package.EncryptionInfo?.InitializationVector?.Length ?? 0} bytes, " +
+                                $"Profile={package.EncryptionInfo?.ProfileIdentifier}");
+
             // commit
             await requestBuilder.Files[contentFile.Id].Commit.PostAsync(new MobileAppContentFileCommitRequest { FileEncryptionInfo = package.EncryptionInfo });
 
@@ -104,7 +111,7 @@ namespace IntuneAppBuilder.Services
                 }
 
                 var blockId = blockCount++.ToString("0000");
-                logger.LogInformation($"Uploading block {blockId} of {lastBlockId} to {contentFile.AzureStorageUri}.");
+                logger.LogInformation($"Uploading block {blockId} of {lastBlockId} to Azure Storage URI: {contentFile.AzureStorageUri}");
 
                 await using (var ms = new MemoryStream(chunk))
                 {
@@ -124,6 +131,7 @@ namespace IntuneAppBuilder.Services
                 blockIds.Add(blockId);
             }
 
+            logger.LogInformation($"Committing {blockIds.Count} blocks to Azure Storage: {contentFile.AzureStorageUri}");
             await new BlockBlobClient(new Uri(contentFile.AzureStorageUri)).CommitBlockListAsync(blockIds);
         }
 
@@ -184,7 +192,7 @@ namespace IntuneAppBuilder.Services
                 catch (RequestFailedException ex)
                 {
                     if (!new[] { 307, 403, 400 }.Contains(ex.Status) || attemptCount++ > 30) throw;
-                    logger.LogInformation($"Encountered retryable error ({ex.Status}) uploading blob to {contentFile.AzureStorageUri} - will retry in 10 seconds.");
+                    logger.LogInformation($"Encountered retryable error ({ex.Status}) uploading blob to Azure Storage: {contentFile.AzureStorageUri} - will retry in 10 seconds.");
                     stream.Position = position;
                     await Task.Delay(10000);
                 }
