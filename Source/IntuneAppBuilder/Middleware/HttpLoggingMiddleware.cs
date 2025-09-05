@@ -5,6 +5,8 @@ using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Xml;
+using System.Xml.Linq;
 using Microsoft.Extensions.Logging;
 
 namespace IntuneAppBuilder.Middleware
@@ -143,15 +145,66 @@ namespace IntuneAppBuilder.Middleware
             {
                 // Try to parse and pretty-print JSON
                 using var document = JsonDocument.Parse(content);
-                return JsonSerializer.Serialize(document, new JsonSerializerOptions 
+                var formatted = JsonSerializer.Serialize(document, new JsonSerializerOptions 
                 { 
                     WriteIndented = true 
                 });
+
+                // Check if this JSON contains a manifest field and decode it
+                var manifestDecoded = TryDecodeManifestFromJson(document);
+                if (!string.IsNullOrEmpty(manifestDecoded))
+                {
+                    formatted += $"\n\n--- Decoded Manifest XML ---\n{manifestDecoded}";
+                }
+
+                return formatted;
             }
             catch
             {
                 // If JSON parsing fails, return original content
                 return content;
+            }
+        }
+
+        private static string TryDecodeManifestFromJson(JsonDocument document)
+        {
+            try
+            {
+                // Check if the root object has a "manifest" property
+                if (document.RootElement.TryGetProperty("manifest", out var manifestElement) && 
+                    manifestElement.ValueKind == JsonValueKind.String)
+                {
+                    var manifestBase64 = manifestElement.GetString();
+                    if (!string.IsNullOrEmpty(manifestBase64))
+                    {
+                        // Decode Base64 to XML string
+                        var xmlBytes = Convert.FromBase64String(manifestBase64);
+                        var xmlString = Encoding.UTF8.GetString(xmlBytes);
+                        
+                        // Pretty-print the XML
+                        return FormatXml(xmlString);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                return $"Error decoding manifest: {ex.Message}";
+            }
+
+            return null;
+        }
+
+        private static string FormatXml(string xml)
+        {
+            try
+            {
+                var doc = XDocument.Parse(xml);
+                return doc.ToString();
+            }
+            catch
+            {
+                // If XML parsing fails, return the original string
+                return xml;
             }
         }
 
