@@ -47,15 +47,15 @@ namespace IntuneAppBuilder.IntegrationTests
 
                 testOutputHelper.WriteLine($"Generated {sizeInMb}MB file in {sw.ElapsedMilliseconds / 1000} seconds.");
 
-                await Program.PackAsync(new FileSystemInfo[] { new DirectoryInfo("big") }, ".", false, GetServices());
+                await Program.PackAsync(new FileSystemInfo[] { new DirectoryInfo("big") }, ".", false, verbose: false, services: GetServices());
 
                 Assert.True(File.Exists("big.intunewin"));
                 Assert.True(File.Exists("big.portal.intunewin"));
                 Assert.True(File.Exists("big.intunewin.json"));
 
-                await Program.PublishAsync(new FileSystemInfo[] { new FileInfo("big.intunewin.json") }, services: GetServices());
+                await Program.PublishAsync(new FileSystemInfo[] { new FileInfo("big.intunewin.json") }, verbose: false, services: GetServices());
                 // publish second time to test updating
-                await Program.PublishAsync(new FileSystemInfo[] { new FileInfo("big.intunewin.json") }, services: GetServices());
+                await Program.PublishAsync(new FileSystemInfo[] { new FileInfo("big.intunewin.json") }, verbose: false, services: GetServices());
 
                 await DeleteAppAsync("big");
             });
@@ -71,15 +71,15 @@ namespace IntuneAppBuilder.IntegrationTests
                 if (!File.Exists(tempPath)) await http.DownloadFileAsync("https://aka.ms/wvdclient", tempPath);
                 File.Copy(tempPath, "wvd.msi");
 
-                await Program.PackAsync(new FileSystemInfo[] { new FileInfo("wvd.msi") }, ".", false, GetServices());
+                await Program.PackAsync(new FileSystemInfo[] { new FileInfo("wvd.msi") }, ".", false, verbose: false, services: GetServices());
 
                 Assert.True(File.Exists("wvd.intunewin"));
                 Assert.True(File.Exists("wvd.portal.intunewin"));
                 Assert.True(File.Exists("wvd.intunewin.json"));
 
-                await Program.PublishAsync(new FileSystemInfo[] { new FileInfo("wvd.intunewin.json") }, services: GetServices());
+                await Program.PublishAsync(new FileSystemInfo[] { new FileInfo("wvd.intunewin.json") }, verbose: false, services: GetServices());
                 // publish second time to test udpating
-                await Program.PublishAsync(new FileSystemInfo[] { new FileInfo("wvd.intunewin.json") }, services: GetServices());
+                await Program.PublishAsync(new FileSystemInfo[] { new FileInfo("wvd.intunewin.json") }, verbose: false, services: GetServices());
 
                 await DeleteAppAsync("Remote Desktop");
             });
@@ -96,15 +96,15 @@ namespace IntuneAppBuilder.IntegrationTests
                 Directory.CreateDirectory("wvd");
                 File.Copy(tempPath, "wvd/wvd.msi");
 
-                await Program.PackAsync(new FileSystemInfo[] { new DirectoryInfo("wvd") }, ".", false, GetServices());
+                await Program.PackAsync(new FileSystemInfo[] { new DirectoryInfo("wvd") }, ".", false, verbose: false, services: GetServices());
 
                 Assert.True(File.Exists("wvd.intunewin"));
                 Assert.True(File.Exists("wvd.portal.intunewin"));
                 Assert.True(File.Exists("wvd.intunewin.json"));
 
-                await Program.PublishAsync(new FileSystemInfo[] { new FileInfo("wvd.intunewin.json") }, services: GetServices());
+                await Program.PublishAsync(new FileSystemInfo[] { new FileInfo("wvd.intunewin.json") }, verbose: false, services: GetServices());
                 // publish second time to test udpating
-                await Program.PublishAsync(new FileSystemInfo[] { new FileInfo("wvd.intunewin.json") }, services: GetServices());
+                await Program.PublishAsync(new FileSystemInfo[] { new FileInfo("wvd.intunewin.json") }, verbose: false, services: GetServices());
 
                 await DeleteAppAsync("Remote Desktop");
             });

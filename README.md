@@ -42,6 +42,9 @@ Commands:
 
 ```
 
+Global Options:
+  --verbose, -v    Enable verbose HTTP request/response logging (disabled by default)
+
 The tool can ```pack``` your app or ```publish``` an app you have previously packaged.
 
 4. **Package** an app
@@ -79,6 +82,16 @@ to authenticate by default. Optionally, an access token may be provided as a par
 ```
 IntuneAppBuilder publish --source .\MyAppPackage\MyAppInstallFiles.intunewin.json --token <token>
 ```
+
+### Verbose HTTP Logging
+
+To troubleshoot interactions with Microsoft Graph, you can enable verbose HTTP request/response logging by adding `--verbose` (or `-v`) to any command:
+
+```
+IntuneAppBuilder pack --source .\MyAppInstallFiles --verbose
+```
+
+When not specified, HTTP request/response bodies and headers are not logged.
 
 ## Notes
 

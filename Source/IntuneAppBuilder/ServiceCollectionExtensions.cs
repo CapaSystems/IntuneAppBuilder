@@ -20,7 +20,7 @@ namespace IntuneAppBuilder
         /// </summary>
         /// <param name="services"></param>
         /// <returns></returns>
-        public static IServiceCollection AddIntuneAppBuilder(this IServiceCollection services, string token = null)
+        public static IServiceCollection AddIntuneAppBuilder(this IServiceCollection services, string token = null, bool verbose = false)
         {
             services.AddLogging();
             services.AddHttpClient();
@@ -28,16 +28,24 @@ namespace IntuneAppBuilder
             services.TryAddTransient<IIntuneAppPublishingService, IntuneAppPublishingService>();
             services.TryAddTransient<IIntuneAppPackagingService, IntuneAppPackagingService>();
             
-            // Register GraphServiceClient with HTTP logging
+            // Register GraphServiceClient with optional HTTP logging
             services.TryAddSingleton(sp =>
             {
-                var logger = sp.GetRequiredService<ILogger<HttpLoggingHandler>>();
-                var loggingHandler = new HttpLoggingHandler(logger)
+                HttpMessageHandler handler;
+                if (verbose)
                 {
-                    InnerHandler = new HttpClientHandler()
-                };
-                
-                var httpClient = new HttpClient(loggingHandler);
+                    var logger = sp.GetRequiredService<ILogger<HttpLoggingHandler>>();
+                    handler = new HttpLoggingHandler(logger)
+                    {
+                        InnerHandler = new HttpClientHandler()
+                    };
+                }
+                else
+                {
+                    handler = new HttpClientHandler();
+                }
+
+                var httpClient = new HttpClient(handler);
                 return new GraphServiceClient(httpClient, CreateTokenCredential(token), new[] { "DeviceManagementApps.ReadWrite.All" });
             });
             

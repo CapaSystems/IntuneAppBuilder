@@ -55,15 +55,18 @@ namespace IntuneAppBuilder.Console
                 pack,
                 publish
             };
+            // Global options
+            var verboseOption = new Option<bool>(new[] { "--verbose", "-v" }, () => false, "Enable verbose HTTP request/response logging.");
+            root.AddGlobalOption(verboseOption);
             root.TreatUnmatchedTokensAsErrors = true;
 
             return await root.InvokeAsync(args);
         }
 
-        internal static IServiceCollection GetServices(string token = null)
+        internal static IServiceCollection GetServices(string token = null, bool verbose = false)
         {
             var services = new ServiceCollection();
-            services.AddIntuneAppBuilder(token);
+            services.AddIntuneAppBuilder(token, verbose);
             services.AddLogging(builder =>
             {
                 // don't write info for HttpClient
@@ -73,9 +76,9 @@ namespace IntuneAppBuilder.Console
             return services;
         }
 
-        internal static async Task PackAsync(FileSystemInfo[] sources, string output, bool noPortal, IServiceCollection services = null)
+        internal static async Task PackAsync(FileSystemInfo[] sources, string output, bool noPortal, bool verbose = false, IServiceCollection services = null)
         {
-            services ??= GetServices();
+            services ??= GetServices(verbose: verbose);
 
             output = Path.GetFullPath(output);
 
@@ -85,14 +88,14 @@ namespace IntuneAppBuilder.Console
             foreach (var builder in sp.GetRequiredService<IEnumerable<IIntuneAppPackageBuilder>>()) await BuildAsync(builder, sp.GetRequiredService<IIntuneAppPackagingService>(), output, !noPortal, GetLogger(sp));
         }
 
-        internal static async Task PublishAsync(FileSystemInfo[] sources, string token = null, IServiceCollection services = null)
+        internal static async Task PublishAsync(FileSystemInfo[] sources, string token = null, bool verbose = false, IServiceCollection services = null)
         {
             if (token != null && services != null)
             {
                 throw new ArgumentException($"Cannot specify both {nameof(token)} and {nameof(services)}.");
             }
 
-            services ??= GetServices(token);
+            services ??= GetServices(token, verbose);
             var sp = services.BuildServiceProvider();
             var publishingService = sp.GetRequiredService<IIntuneAppPublishingService>();
             var logger = GetLogger(sp);
