@@ -71,7 +71,10 @@ namespace IntuneAppBuilder.Console
             {
                 // don't write info for HttpClient
                 builder.AddFilter((category, level) => category.StartsWith("System.Net.Http.HttpClient") ? level >= LogLevel.Warning : level >= LogLevel.Information);
-                builder.AddConsole();
+                builder.AddSimpleConsole(o =>
+                {
+                    o.ColorBehavior = Microsoft.Extensions.Logging.Console.LoggerColorBehavior.Disabled;
+                });
             });
             return services;
         }

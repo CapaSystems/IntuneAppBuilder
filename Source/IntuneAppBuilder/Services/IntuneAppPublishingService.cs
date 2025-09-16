@@ -6,6 +6,8 @@ using System.Linq;
 using System.Net;
 using System.Threading.Tasks;
 using Azure;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using IntuneAppBuilder.Builders;
 using IntuneAppBuilder.Domain;
 using Microsoft.Extensions.Logging;
@@ -55,6 +57,7 @@ namespace IntuneAppBuilder.Services
             await msGraphClient.DeviceAppManagement.MobileApps[app.Id].PatchAsync(update);
 
             logger.LogInformation($"Published Intune app package for {app.DisplayName} in {sw.ElapsedMilliseconds}ms.");
+            LogPublishedInfo(app, content, package, sw.ElapsedMilliseconds);
         }
 
         private async Task<MobileAppContentFile> AddContentFileAsync(MobileAppContentRequestBuilder requestBuilder, IntuneAppPackage package) =>
@@ -294,6 +297,36 @@ namespace IntuneAppBuilder.Services
                         }
                     };
                 }
+            }
+        }
+
+        private void LogPublishedInfo(MobileApp app, Entity content, IntuneAppPackage package, long durationMs)
+        {
+            // Emit structured JSON with useful publish metadata
+            try
+            {
+                var publishedInfo = new
+                {
+                    AppId = app.Id,
+                    AppDisplayName = app.DisplayName,
+                    CommittedContentVersionId = content.Id,
+                    PackageFileName = package.File?.Name,
+                    PackageFileSize = package.Data?.Length,
+                    PublishedAtUtc = DateTime.UtcNow,
+                    DurationMs = durationMs
+                };
+
+                var json = JsonSerializer.Serialize(publishedInfo, new JsonSerializerOptions
+                {
+                    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+                    WriteIndented = false
+                });
+
+                logger.LogInformation($"Published Intune app info: {json}");
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Failed to serialize published Intune app info JSON.");
             }
         }
     }
