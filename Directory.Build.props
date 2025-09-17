@@ -17,9 +17,12 @@
 		<IncludeSymbols>true</IncludeSymbols>
 		<SymbolPackageFormat>snupkg</SymbolPackageFormat>
 		<EmbedUntrackedSources>true</EmbedUntrackedSources>
+		<!-- Set to false to bypass Microsoft.Build.Tasks.Git when runner git metadata causes errors -->
+		<EnableSourceControlManagerQueries>true</EnableSourceControlManagerQueries>
 	</PropertyGroup>
 	<ItemGroup>
-		<PackageReference Include="Microsoft.SourceLink.GitHub" Version="1.0.0" PrivateAssets="All"/>
+		<!-- Upgraded SourceLink to avoid Microsoft.Build.Tasks.Git parsing errors with newer git repository versions -->
+		<PackageReference Include="Microsoft.SourceLink.GitHub" Version="8.0.0" PrivateAssets="All"/>
 	</ItemGroup>
 
 	<ItemGroup>
