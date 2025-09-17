@@ -142,16 +142,12 @@ namespace IntuneAppBuilder.Services
             {
                 logger.LogInformation($"Override app id provided ({overrideAppId}) - will attempt to update existing app.");
                 var existing = await msGraphClient.DeviceAppManagement.MobileApps[overrideAppId].GetAsync() as MobileLobApp;
-                if (existing == null)
+                // it the existing app is valid
+                if (existing != null && app.OdataType?.TrimStart('#') == existing.OdataType?.TrimStart('#'))
                 {
-                    throw new InvalidOperationException($"Could not find existing MobileLobApp with id {overrideAppId}.");
+                    logger.LogInformation($"Updating existing app {existing.Id} ({existing.DisplayName}).");
+                    return existing;
                 }
-                if (app.OdataType?.TrimStart('#') != existing.OdataType?.TrimStart('#'))
-                {
-                    throw new NotSupportedException($"Existing application {existing.DisplayName} is of type {existing.OdataType?.TrimStart('#')} but the package app is of type {app.OdataType?.TrimStart('#')} - they must match.");
-                }
-                logger.LogInformation($"Updating existing app {existing.Id} ({existing.DisplayName}).");
-                return existing;
             }
 
             // create new app
