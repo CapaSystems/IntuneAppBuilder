@@ -29,11 +29,10 @@ namespace IntuneAppBuilder.Services
             this.msGraphClient = msGraphClient;
         }
 
-        public async Task PublishAsync(IntuneAppPackage package)
+        public async Task PublishAsync(IntuneAppPackage package, string appId = null)
         {
             logger.LogInformation($"Publishing Intune app package for {package.App.DisplayName}.");
-
-            var app = await GetAppAsync(package.App);
+            var app = await GetAppAsync(package.App, appId);
 
             var sw = Stopwatch.StartNew();
 
@@ -81,13 +80,6 @@ namespace IntuneAppBuilder.Services
             await CreateBlobAsync(package, contentFile, requestBuilder.Files[contentFile.Id]);
 
             logger.LogInformation($"Uploaded app content file in {sw.ElapsedMilliseconds}ms.");
-
-            // Log file encryption information
-            logger.LogInformation($"File Encryption Info: Algorithm={package.EncryptionInfo?.FileDigestAlgorithm}, " +
-                                $"FileHash={Convert.ToBase64String(package.EncryptionInfo?.FileDigest ?? new byte[0])}, " +
-                                $"FileSize={package.Data?.Length ?? 0}, " +
-                                $"InitVector={package.EncryptionInfo?.InitializationVector?.Length ?? 0} bytes, " +
-                                $"Profile={package.EncryptionInfo?.ProfileIdentifier}");
 
             // commit
             await requestBuilder.Files[contentFile.Id].Commit.PostAsync(new MobileAppContentFileCommitRequest { FileEncryptionInfo = package.EncryptionInfo });
@@ -143,36 +135,31 @@ namespace IntuneAppBuilder.Services
         /// </summary>
         /// <param name="app"></param>
         /// <returns></returns>
-        private async Task<MobileLobApp> GetAppAsync(MobileLobApp app)
+        private async Task<MobileLobApp> GetAppAsync(MobileLobApp app, string overrideAppId)
         {
-            MobileLobApp result;
-            if (Guid.TryParse(app.Id, out var _))
-                // resolve from id
+            // If an override app id is provided, always attempt to update that app.
+            if (!string.IsNullOrWhiteSpace(overrideAppId))
             {
-                result = await msGraphClient.DeviceAppManagement.MobileApps[app.Id].GetAsync() as MobileLobApp ?? throw new ArgumentException($"App {app.Id} should be a {nameof(MobileLobApp)}.", nameof(app));
-            }
-            else
-            {
-                // resolve from name
-                result = (await msGraphClient.DeviceAppManagement.MobileApps.GetAsync(requestConfiguration => requestConfiguration.QueryParameters.Filter = $"displayName eq '{app.DisplayName}'"))?.Value?.OfType<MobileLobApp>().FirstOrDefault();
-            }
-
-            if (result == null)
-            {
-                SetDefaults(app);
-                // create new
-                logger.LogInformation($"App {app.DisplayName} does not exist - creating new app.");
-                result = (MobileLobApp)await msGraphClient.DeviceAppManagement.MobileApps.PostAsync(app);
+                logger.LogInformation($"Override app id provided ({overrideAppId}) - will attempt to update existing app.");
+                var existing = await msGraphClient.DeviceAppManagement.MobileApps[overrideAppId].GetAsync() as MobileLobApp;
+                if (existing == null)
+                {
+                    throw new InvalidOperationException($"Could not find existing MobileLobApp with id {overrideAppId}.");
+                }
+                if (app.OdataType?.TrimStart('#') != existing.OdataType?.TrimStart('#'))
+                {
+                    throw new NotSupportedException($"Existing application {existing.DisplayName} is of type {existing.OdataType?.TrimStart('#')} but the package app is of type {app.OdataType?.TrimStart('#')} - they must match.");
+                }
+                logger.LogInformation($"Updating existing app {existing.Id} ({existing.DisplayName}).");
+                return existing;
             }
 
-            if (app.OdataType.TrimStart('#') != result.OdataType.TrimStart('#'))
-            {
-                throw new NotSupportedException($"Found existing application {result.DisplayName}, but it of type {result.OdataType.TrimStart('#')} and the app being deployed is of type {app.OdataType.TrimStart('#')} - delete the existing app and try again.");
-            }
-
-            logger.LogInformation($"Using app {result.Id} ({result.DisplayName}).");
-
-            return result;
+            // create new app
+            SetDefaults(app);
+            logger.LogInformation($"Creating new app for package {app.DisplayName}.");
+            var created = (MobileLobApp)await msGraphClient.DeviceAppManagement.MobileApps.PostAsync(app);
+            logger.LogInformation($"Created new app {created.Id} ({created.DisplayName}).");
+            return created;
         }
 
         private async Task<MobileAppContentFile> RenewStorageUri(MobileAppContentFileRequestBuilder contentFileRequestBuilder)

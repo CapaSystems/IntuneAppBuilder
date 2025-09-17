@@ -13,6 +13,6 @@ namespace IntuneAppBuilder.Services
         /// </summary>
         /// <param name="package">A package created using the packaging service.</param>
         /// <returns></returns>
-        Task PublishAsync(IntuneAppPackage package);
+    Task PublishAsync(IntuneAppPackage package, string appId = null);
     }
 }

@@ -44,7 +44,10 @@ namespace IntuneAppBuilder.Console
                     { Name = "sources", IsRequired = true },
                 new Option<string>(new[] { "--token", "-t" },
                         "Specifies an access token to use when publishing.")
-                    { Name = "token", IsRequired = false }
+                    { Name = "token", IsRequired = false },
+                new Option<string>(new[] { "--appId" },
+                        "Specifies an existing Intune app Id to update. If omitted a new app is always created.")
+                    { Name = "appId", IsRequired = false }
             };
 #pragma warning disable S3011
             publish.Handler = CommandHandler.Create(typeof(Program).GetMethod(nameof(PublishAsync), BindingFlags.Static | BindingFlags.NonPublic)!);
@@ -91,7 +94,7 @@ namespace IntuneAppBuilder.Console
             foreach (var builder in sp.GetRequiredService<IEnumerable<IIntuneAppPackageBuilder>>()) await BuildAsync(builder, sp.GetRequiredService<IIntuneAppPackagingService>(), output, !noPortal, GetLogger(sp));
         }
 
-        internal static async Task PublishAsync(FileSystemInfo[] sources, string token = null, bool verbose = false, IServiceCollection services = null)
+        internal static async Task PublishAsync(FileSystemInfo[] sources, string token = null, string appId = null, bool verbose = false, IServiceCollection services = null)
         {
             if (token != null && services != null)
             {
@@ -108,7 +111,7 @@ namespace IntuneAppBuilder.Console
             foreach (var file in sourceFiles)
             {
                 using var package = ReadPackage(file, logger);
-                await publishingService.PublishAsync(package);
+                await publishingService.PublishAsync(package, appId);
             }
         }
 
